@@ -6,17 +6,25 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-export default function Chat({ token, onLogout }) {
+export default function Chat({ token }) {
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState("");
   const [conversationId, setConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
 
-  async function loadConversations() {
-    const data = await getConversations(token);
-    setConversations(data);
-  }
+    async function loadConversations() {
+      try {
+        const data = await getConversations(token);
+
+        setConversations(
+          Array.isArray(data) ? data : []
+        );
+      } catch (error) {
+        console.error(error);
+        setConversations([]);
+      }
+    }
 
   useEffect(() => {
     loadConversations();
@@ -91,10 +99,6 @@ export default function Chat({ token, onLogout }) {
   return (
     <div>
       <h2>Enterprise RAG Document Assistant</h2>
-
-      <button onClick={onLogout}>
-        Logout
-      </button>
 
       <hr />
 

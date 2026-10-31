@@ -6,6 +6,7 @@ from app.api.v1.routers import (
     conversations,
     health,
     users,
+    documents,
 )
 
 
@@ -40,4 +41,10 @@ api_router.include_router(
     users.router,
     prefix="/users",
     tags=["Users"],
+)
+
+api_router.include_router(
+    documents.router,
+    prefix="/documents",
+    tags=["Documents"],
 )

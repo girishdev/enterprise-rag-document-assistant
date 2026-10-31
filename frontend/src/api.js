@@ -30,6 +30,10 @@ export async function getConversations(token) {
     }
   );
 
+  if (!response.ok) {
+    throw new Error("Failed to load conversations");
+  }
+
   return response.json();
 }
 
