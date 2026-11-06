@@ -12,6 +12,7 @@ export default function Chat({ token }) {
   const [conversationId, setConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [sources, setSources] = useState([]);
 
     async function loadConversations() {
       try {
@@ -70,25 +71,27 @@ export default function Chat({ token }) {
 
         const data = line.replace("data: ", "");
 
-        if (data.startsWith("[DONE:")) {
-          const id = data
-            .replace("[DONE:", "")
-            .replace("]", "");
+        if (data.startsWith("[SOURCES:")) {
+          const sourceData = data.slice(
+            "[SOURCES:".length,
+            -1
+          );
 
-          setConversationId(id);
-
-          await loadConversations();
-
-          const updatedMessages =
-            await getMessages(token, id);
-
-          setMessages(updatedMessages);
-
-          setReply("");
-
+          setSources(JSON.parse(sourceData));
           continue;
         }
 
+        if (data.startsWith("[DONE:")) {
+          const conversationId = data.slice(
+            "[DONE:".length,
+            -1
+          );
+
+          setConversationId(conversationId);
+          continue;
+        }
+
+        // Only normal AI text should reach here
         setReply((prev) => prev + data);
       }
     }
@@ -144,6 +147,21 @@ export default function Chat({ token }) {
       >
         Send
       </button>
+
+      {sources.length > 0 && (
+        <div>
+          <strong>Sources:</strong>
+
+          {sources.map((source, index) => (
+            <div key={index}>
+              {source.filename}
+              {" - "}
+              Chunk {source.chunk_index}
+            </div>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 }

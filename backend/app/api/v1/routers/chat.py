@@ -2,26 +2,38 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
-# from app.llm.openai_provider import OpenAIProvider
-from app.llm.mock_provider import MockLLMProvider
-from app.llm.mock_stream_provider import MockStreamLLMProvider
-from app.models.user import User
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.chat_service import ChatService
 
+# Normal /chat endpoint still uses Mock for now
+from app.llm.mock_provider import MockLLMProvider
+
+from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
-from app.repositories.conversation_repository import ConversationRepository
-from app.repositories.message_repository import MessageRepository
+
+from app.schemas.chat import ChatRequest, ChatResponse
+
+from app.services.chat_service import ChatService
+from app.services.rag_service import RAGService
+
+from app.repositories.conversation_repository import (
+    ConversationRepository,
+)
+from app.repositories.message_repository import (
+    MessageRepository,
+)
+import json
 
 
 router = APIRouter()
 
+
+# ---------------------------------------------------------
+# Normal Chat API
+# ---------------------------------------------------------
 
 @router.post(
     "",
@@ -40,7 +52,6 @@ async def chat(
 ):
     service = ChatService(
         db=db,
-        # llm_provider=OpenAIProvider(),
         llm_provider=MockLLMProvider(),
     )
 
@@ -52,6 +63,7 @@ async def chat(
         )
 
     except ValueError as exc:
+
         if str(exc) == "CONVERSATION_NOT_FOUND":
             raise HTTPException(
                 status_code=404,
@@ -71,6 +83,11 @@ async def chat(
         reply=reply,
     )
 
+
+# ---------------------------------------------------------
+# RAG Streaming Chat API
+# ---------------------------------------------------------
+
 @router.post("/stream")
 async def stream_chat(
     request: ChatRequest,
@@ -86,7 +103,12 @@ async def stream_chat(
     conversation_repository = ConversationRepository(db)
     message_repository = MessageRepository(db)
 
+    # -----------------------------------------------------
+    # 1. Create or load conversation
+    # -----------------------------------------------------
+
     if request.conversation_id is None:
+
         conversation = Conversation(
             user_id=current_user.id,
             title=request.message[:80],
@@ -97,6 +119,7 @@ async def stream_chat(
         )
 
     else:
+
         conversation = conversation_repository.get_by_id(
             request.conversation_id
         )
@@ -113,44 +136,60 @@ async def stream_chat(
                 detail="Access denied",
             )
 
+    # -----------------------------------------------------
+    # 2. Save user message
+    # -----------------------------------------------------
+
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
         content=request.message,
     )
 
-    message_repository.create(user_message)
-
-    messages = message_repository.list_by_conversation(
-        conversation.id
+    message_repository.create(
+        user_message
     )
 
-    llm_messages = [
-        {
-            "role": message.role,
-            "content": message.content,
-        }
-        for message in messages
-    ]
+    # -----------------------------------------------------
+    # 3. Generate real RAG response
+    # -----------------------------------------------------
 
-    provider = MockStreamLLMProvider()
+    rag_service = RAGService(db)
+
+    rag_result = await rag_service.answer(
+        question=request.message,
+        owner_id=current_user.id,
+    )
+
+    reply = rag_result["answer"]
+    sources = rag_result["sources"]
+
+    # -----------------------------------------------------
+    # 4. Save assistant response
+    # -----------------------------------------------------
+
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=reply,
+    )
+
+    message_repository.create(
+        assistant_message
+    )
+
+    # -----------------------------------------------------
+    # 5. Send response to React using SSE
+    # -----------------------------------------------------
 
     async def event_generator():
-        full_response = ""
 
-        async for chunk in provider.stream(llm_messages):
-            full_response += chunk
+        safe_reply = reply.replace("\n", " ")
 
-            yield f"data: {chunk}\n\n"
+        yield f"data: {safe_reply}\n\n"
 
-        assistant_message = Message(
-            conversation_id=conversation.id,
-            role="assistant",
-            content=full_response.strip(),
-        )
-
-        message_repository.create(
-            assistant_message
+        yield (
+            f"data: [SOURCES:{json.dumps(sources)}]\n\n"
         )
 
         yield (

@@ -9,6 +9,14 @@ from app.repositories.document_repository import DocumentRepository
 from app.services.document_validation_service import validate_document
 from app.services.extraction_service import extract_text
 
+from app.models.document_chunk import DocumentChunk
+from app.repositories.document_chunk_repository import DocumentChunkRepository
+from app.services.chunking_service import ChunkingService
+# from app.embeddings.mock_provider import MockEmbeddingProvider
+from app.embeddings.ollama_provider import OllamaEmbeddingProvider
+from app.services.embedding_service import EmbeddingService
+
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BASE_DIR / "uploads"
 
@@ -22,6 +30,12 @@ class DocumentService:
 
     def __init__(self, db: Session):
         self.repository = DocumentRepository(db)
+        self.chunking_service = ChunkingService()
+        self.chunk_repository = DocumentChunkRepository(db)
+        self.embedding_service = EmbeddingService(
+            chunk_repository=self.chunk_repository,
+            embedding_provider=OllamaEmbeddingProvider(),
+        )
 
     async def upload(
         self,
@@ -54,13 +68,13 @@ class DocumentService:
                 str(storage_path)
             )
 
-            status = "READY"
+            processing_status = "READY"
         except Exception as exc:
             print("Extraction failed:", exc)
 
             extracted_text = None
             page_count = None
-            status = "FAILED"
+            processing_status = "FAILED"
 
         document = Document(
             owner_id=owner_id,
@@ -70,8 +84,30 @@ class DocumentService:
             file_size=len(content),
             storage_path=str(storage_path),
             extracted_text=extracted_text,
+            processing_status=processing_status,
             page_count=page_count,
-            processing_status=status,
         )
 
-        return self.repository.create(document)
+        document = self.repository.create(document)
+
+        if document.processing_status == "READY" and document.extracted_text:
+            chunks = self.chunking_service.chunk_text(
+                document.extracted_text
+            )
+
+            document_chunks = [
+                DocumentChunk(
+                    document_id=document.id,
+                    chunk_index=index,
+                    content=chunk,
+                )
+                for index, chunk in enumerate(chunks)
+            ]
+
+            self.chunk_repository.create_many(document_chunks)
+
+            await self.embedding_service.embed_document(
+                document.id
+            )
+
+        return document
