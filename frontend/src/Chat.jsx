@@ -1,167 +1,209 @@
 import { useEffect, useState } from "react";
 import {
-  getConversations,
-  getMessages,
+	getConversations,
+	getMessages,
 } from "./api";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Chat({ token }) {
-  const [message, setMessage] = useState("");
-  const [reply, setReply] = useState("");
-  const [conversationId, setConversationId] = useState(null);
-  const [conversations, setConversations] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [sources, setSources] = useState([]);
+	const [message, setMessage] = useState("");
+	const [reply, setReply] = useState("");
+	const [conversationId, setConversationId] = useState(null);
+	const [conversations, setConversations] = useState([]);
+	const [messages, setMessages] = useState([]);
+	const [sources, setSources] = useState([]);
+	const [documents, setDocuments] = useState([]);
+	const [selectedDocumentId, setSelectedDocumentId] = useState("");
 
-    async function loadConversations() {
-      try {
-        const data = await getConversations(token);
+	async function loadConversations() {
+		try {
+			const data = await getConversations(token);
 
-        setConversations(
-          Array.isArray(data) ? data : []
-        );
-      } catch (error) {
-        console.error(error);
-        setConversations([]);
-      }
-    }
+			setConversations(
+				Array.isArray(data) ? data : []
+			);
+		} catch (error) {
+			console.error(error);
+			setConversations([]);
+		}
+	}
 
-  useEffect(() => {
-    loadConversations();
-  }, []);
+	async function loadDocuments() {
+		const response = await fetch(
+			`${API_URL}/documents`,
+			{
+				headers: {
+					Authorization: `Bearer ${token}`,
+				},
+			}
+		);
 
-  async function selectConversation(id) {
-    setConversationId(id);
+		if (response.ok) {
+			setDocuments(await response.json());
+		}
+	}
 
-    const data = await getMessages(token, id);
-    setMessages(data);
-  }
+	useEffect(() => {
+		loadConversations();
+		loadDocuments();
+	}, []);
 
-  async function sendMessage() {
-    setReply("");
+	async function selectConversation(id) {
+		setConversationId(id);
 
-    const response = await fetch(
-      `${API_URL}/chat/stream`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          message,
-          conversation_id: conversationId,
-        }),
-      }
-    );
+		const data = await getMessages(token, id);
+		setMessages(data);
+	}
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+	async function sendMessage() {
+		setReply("");
 
-    while (true) {
-      const { value, done } = await reader.read();
+		const response = await fetch(
+			`${API_URL}/chat/stream`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					message,
+					conversation_id: conversationId,
+					document_id: selectedDocumentId || null,
+				}),
+			}
+		);
 
-      if (done) break;
+		const reader = response.body.getReader();
+		const decoder = new TextDecoder();
 
-      const text = decoder.decode(value);
+		while (true) {
+			const { value, done } = await reader.read();
 
-      for (const line of text.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
+			if (done) break;
 
-        const data = line.replace("data: ", "");
+			const text = decoder.decode(value);
 
-        if (data.startsWith("[SOURCES:")) {
-          const sourceData = data.slice(
-            "[SOURCES:".length,
-            -1
-          );
+			for (const line of text.split("\n")) {
+				if (!line.startsWith("data: ")) continue;
 
-          setSources(JSON.parse(sourceData));
-          continue;
-        }
+				const data = line.replace("data: ", "");
 
-        if (data.startsWith("[DONE:")) {
-          const conversationId = data.slice(
-            "[DONE:".length,
-            -1
-          );
+				if (data.startsWith("[SOURCES:")) {
+					const sourceData = data.slice(
+						"[SOURCES:".length,
+						-1
+					);
 
-          setConversationId(conversationId);
-          continue;
-        }
+					setSources(JSON.parse(sourceData));
+					continue;
+				}
 
-        // Only normal AI text should reach here
-        setReply((prev) => prev + data);
-      }
-    }
+				if (data.startsWith("[DONE:")) {
+					const conversationId = data.slice(
+						"[DONE:".length,
+						-1
+					);
 
-    setMessage("");
-  }
+					setConversationId(conversationId);
+					continue;
+				}
 
-  return (
-    <div>
-      <h2>Enterprise RAG Document Assistant</h2>
+				// Only normal AI text should reach here
+				setReply((prev) => prev + data);
+			}
+		}
 
-      <hr />
+		setMessage("");
+	}
 
-      <h3>Conversations</h3>
+	return (
+		<div>
+			<h2>Enterprise RAG Document Assistant</h2>
 
-      {conversations.map((conversation) => (
-        <button
-          key={conversation.id}
-          onClick={() =>
-            selectConversation(conversation.id)
-          }
-        >
-          {conversation.title || "Conversation"}
-        </button>
-      ))}
+			<hr />
 
-      <hr />
+			<h3>Conversations</h3>
 
-      <h3>Messages</h3>
+			{conversations.map((conversation) => (
+				<button
+					key={conversation.id}
+					onClick={() =>
+						selectConversation(conversation.id)
+					}
+				>
+					{conversation.title || "Conversation"}
+				</button>
+			))}
 
-      {messages.map((item) => (
-        <p key={item.id}>
-          <strong>{item.role}:</strong>{" "}
-          {item.content}
-        </p>
-      ))}
+			<hr />
 
-      {reply && (
-        <p>
-          <strong>assistant:</strong> {reply}
-        </p>
-      )}
+			<select
+				value={selectedDocumentId}
+				onChange={(e) =>
+					setSelectedDocumentId(e.target.value)
+				}
+			>
+				<option value="">
+					All Documents
+				</option>
 
-      <input
-        value={message}
-        placeholder="Ask something..."
-        onChange={(e) => setMessage(e.target.value)}
-      />
+				{documents.map((document) => (
+					<option
+						key={document.id}
+						value={document.id}
+					>
+						{document.original_filename}
+					</option>
+				))}
+			</select>
 
-      <button
-        onClick={sendMessage}
-        disabled={!message.trim()}
-      >
-        Send
-      </button>
+			<h3>Messages</h3>
 
-      {sources.length > 0 && (
-        <div>
-          <strong>Sources:</strong>
+			{messages.map((item) => (
+				<p key={item.id}>
+					<strong>{item.role}:</strong>{" "}
+					{item.content}
+				</p>
+			))}
 
-          {sources.map((source, index) => (
-            <div key={index}>
-              {source.filename}
-              {" - "}
-              Chunk {source.chunk_index}
-            </div>
-          ))}
-        </div>
-      )}
+			{reply && (
+				<p>
+					<strong>assistant:</strong> {reply}
+				</p>
+			)}
 
-    </div>
-  );
+			<input
+				value={message}
+				placeholder="Ask something..."
+				onChange={(e) => setMessage(e.target.value)}
+			/>
+
+			<button
+				onClick={sendMessage}
+				disabled={!message.trim()}
+			>
+				Send
+			</button>
+
+			{sources.length > 0 && (
+				<div>
+					<strong>Sources:</strong>
+
+					{sources.map((source, index) => (
+						<div key={index}>
+							{source.filename}
+
+							{source.page_number
+								? ` - Page ${source.page_number}`
+								: ` - Chunk ${source.chunk_index}`
+							}
+						</div>
+					))}
+				</div>
+			)}
+
+		</div>
+	);
 }

@@ -75,6 +75,7 @@ class DocumentChunkRepository:
             owner_id: UUID,
             limit: int = 5,
             max_distance: float = 0.6,
+            document_id: UUID | None = None,
     ) -> list[DocumentChunk]:
         distance = DocumentChunk.embedding.cosine_distance(
             query_embedding
@@ -91,9 +92,49 @@ class DocumentChunkRepository:
                 Document.owner_id == owner_id,
                 distance <= max_distance,
             )
+        )
+
+        if document_id is not None:
+            statement = statement.where(
+                DocumentChunk.document_id == document_id
+            )
+
+        statement = (
+            statement
             .order_by(distance)
             .limit(limit)
         )
+
+        return list(
+            self.db.scalars(statement).all()
+        )
+
+    def search_keyword(
+            self,
+            query: str,
+            owner_id: UUID,
+            limit: int = 5,
+            document_id: UUID | None = None,
+    ) -> list[DocumentChunk]:
+
+        statement = (
+            select(DocumentChunk)
+            .join(
+                Document,
+                Document.id == DocumentChunk.document_id,
+            )
+            .where(
+                Document.owner_id == owner_id,
+                DocumentChunk.content.ilike(f"%{query}%"),
+            )
+        )
+
+        if document_id is not None:
+            statement = statement.where(
+                DocumentChunk.document_id == document_id
+            )
+
+        statement = statement.limit(limit)
 
         return list(
             self.db.scalars(statement).all()

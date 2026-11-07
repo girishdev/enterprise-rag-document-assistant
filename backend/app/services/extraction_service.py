@@ -50,3 +50,32 @@ def extract_txt(path: Path) -> tuple[str, None]:
     )
 
     return text, None
+
+
+def extract_pages(
+    file_path,
+    mime_type: str,
+) -> list[tuple[int | None, str]]:
+
+    if mime_type == "application/pdf":
+        reader = PdfReader(file_path)
+
+        pages = []
+
+        for index, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+
+            if text.strip():
+                pages.append(
+                    (index + 1, text)
+                )
+
+        return pages
+
+    # DOCX / TXT do not have reliable page numbers
+    text, _ = self.extract_text(
+        file_path,
+        mime_type,
+    )
+
+    return [(None, text)]

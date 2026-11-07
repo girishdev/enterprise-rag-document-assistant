@@ -159,6 +159,7 @@ async def stream_chat(
     rag_result = await rag_service.answer(
         question=request.message,
         owner_id=current_user.id,
+        document_id=request.document_id,
     )
 
     reply = rag_result["answer"]

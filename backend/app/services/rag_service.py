@@ -21,12 +21,14 @@ class RAGService:
             self,
             question: str,
             owner_id: UUID,
+            document_id: UUID | None = None,
     ) -> dict:
 
         chunks = await self.retrieval_service.search(
             query=question,
             owner_id=owner_id,
             limit=5,
+            document_id=document_id,
         )
 
         if not chunks:
@@ -73,6 +75,7 @@ Question:
                 "document_id": str(chunk.document_id),
                 "filename": chunk.document.original_filename,
                 "chunk_index": chunk.chunk_index,
+                "page_number": chunk.page_number,
             }
             for chunk in chunks
         ]
