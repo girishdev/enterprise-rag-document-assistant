@@ -73,9 +73,8 @@ def extract_pages(
         return pages
 
     # DOCX / TXT do not have reliable page numbers
-    text, _ = self.extract_text(
-        file_path,
-        mime_type,
+    text, _ = extract_text(
+        str(file_path)
     )
 
     return [(None, text)]
